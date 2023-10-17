@@ -55,7 +55,7 @@ ppl = [2.45]
 thickness = [sm.get_surface_and_gap(i)[1].thi for i in range(2, len(sm.ifcs) - 1)]
 
 # Кривизны
-curvs = [sm.ifcs[i].profile.cc for i in range(2, len(sm.ifcs) - 2)
+curvs = [sm.ifcs[i].profile.cv for i in range(2, len(sm.ifcs) - 2)
          if type(sm.ifcs[i].profile) == EvenPolynomial]
 
 # Коэф преломления

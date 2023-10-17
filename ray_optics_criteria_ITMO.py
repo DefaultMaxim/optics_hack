@@ -232,7 +232,7 @@ def calc_loss(path2model):
     #         loss_min_thickness_air, 
     #         loss_enclosed_energy_all, 
     #         loss_rms_all)
-    if loss < 15:
+    if loss < 600:
         opm.save_model(f'low_loss/loss_{loss}')
 
     return (loss)

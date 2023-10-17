@@ -26,6 +26,7 @@ warnings.filterwarnings('ignore')
 
 isdark = False
 
+file_path = 'random_gen_focus.roa'  # Путь файла который мы хотим оптимизировать.
 efl_for_loss = 5  # Focal dist mm | =
 fD_for_loss = 2.1  # F/# mm | <=
 total_length_for_loss = 7.0  # Total lenght mm | <=
@@ -39,7 +40,7 @@ fields = [0., 5., 10., 15., 20.]  # deg
 number_of_field = len(fields)
 number_of_wavelength = len(wavelength)
 
-opm = open_model('test.roa', info=True)
+opm = open_model(file_path, info=True)
 
 sm = opm['seq_model']
 osp = opm['optical_spec']
@@ -95,10 +96,10 @@ ETA = 15  # Похожесть потомков на родителей, обы�
 LENGTH_CHROM = len(ind)  # длина хромосомы, подлежащей оптимизации
 
 # константы генетического алгоритма
-POPULATION_SIZE = 3  # количество индивидуумов в популяции (для хорошего лосса следует ставить от 300влияет на время работы))
+POPULATION_SIZE = 1000  # количество индивидуумов в популяции (для хорошего лосса следует ставить от 300влияет на время работы))
 P_CROSSOVER = 0.9  # вероятность скрещивания
 P_MUTATION = 0.2  # вероятность мутации индивидуума
-MAX_GENERATIONS = 2  # максимальное количество поколений (для хорошего лосса следует ставить от 15(влияет на время работы))
+MAX_GENERATIONS = 20  # максимальное количество поколений (для хорошего лосса следует ставить от 15(влияет на время работы))
 HALL_OF_FAME_SIZE = 5  # количество лучших особей в каждом поколении
 
 hof = tools.HallOfFame(HALL_OF_FAME_SIZE)
@@ -120,19 +121,28 @@ def randomPoint(X, Y):
     :param Y: не устанавливать (нужно для работы алгоритма)
     :return:
     """
-    return np.concatenate([  # np.random.uniform(1.5, 3, size=len(ppl)),
-        np.random.uniform(0.1, 1.2, size=len(thickness)),
-        #    np.random.uniform(-20, 300, size=len(curvs)),
-        np.random.uniform(0, 1, size=len(n)),
-        np.random.uniform(-0.2, 0.2, size=len(coefs.flatten().tolist()))
-    ])
+    # доавляйте или удаляйте то, что хотите или не хотите оптимизировать, исключительно в таком же порядке,
+    # как и при инициализации.
+    # Н-р: Если вы оптимизируете только thickness и curvs, тогда return будет выглядеть так:
+
+    # return np.concatenate([np.random.uniform(0.1, 1.2, size=len(thickness)),
+    #      np.random.uniform(-0.2, 0.2, size=len(curvs)),
+    #      ])
+
+    return np.concatenate([np.random.uniform(0.1, 1.2, size=len(thickness)),  # Комментировать если не нужно менять толщины
+         np.random.uniform(0, 1, size=len(n)),  # Комментировать если не хотим менять n и abbe
+         np.random.uniform(-0.2, 0.2, size=len(coefs.flatten().tolist()))  # Комментировать если не хотим менять коэфы
+         ])
 
 
 toolbox = base.Toolbox()
+
 # Случайная особь создается так:
 toolbox.register("randomPoint", randomPoint, LOW, UP)
+
 # Создание особи:
 toolbox.register("individualCreator", tools.initIterate, creator.Individual, toolbox.randomPoint)
+
 # Создание популяции:
 toolbox.register("populationCreator", tools.initRepeat, list, toolbox.individualCreator)
 population = toolbox.populationCreator(n=POPULATION_SIZE)
@@ -148,7 +158,8 @@ def himmelblau(individual):
     :return: loss
     """
     x = individual  # Наша особь
-    opm = open_model('test.roa', info=True)
+
+    opm = open_model(file_path, info=True)
     sm = opm['seq_model']
     osp = opm['optical_spec']
     pm = opm['parax_model']
@@ -196,22 +207,27 @@ def himmelblau(individual):
         opm.save_model('genetic_opt.roa')
         f = calc_loss('genetic_opt.roa')
         if str(f) == 'nan':
-            return 100000
+            f = 10000
         return f,
     except (ValueError, IndexError) as e:
-        return 1000000,
+        return 10000,
+
 
 # Модуль scoop отвечает за многопоточность, использование данного модуля в разы увеличивает скорость работы алгоритма
 # Процесс запуска алгоритма с многопоточностью описан в Readme
 from scoop import futures
 
 toolbox.register("map", futures.map)
+
 # Функция для оптимизации(определена выше)
 toolbox.register("evaluate", himmelblau)
+
 # Турнирный отбор - отбор лучших особей
 toolbox.register("select", tools.selTournament, tournsize=3)
+
 # Метод скрещевания особей
 toolbox.register("mate", tools.cxSimulatedBinary, eta=ETA)
+
 # Метод мутации особей
 toolbox.register("mutate", tools.mutPolynomialBounded, low=LOW, up=UP, eta=ETA, indpb=1.0 / LENGTH_CHROM)
 
@@ -235,43 +251,54 @@ best = hof.items[0]
 print(f'Лучшая особь: {best}')
 
 
-def save_gen_model(num):
-    opm = open_model('test.roa')
-    sm = opm['seq_model']
-    osp = opm['optical_spec']
-    pm = opm['parax_model']
-    em = opm['ele_model']
-    pt = opm['part_tree']
-    ar = opm['analysis_results']
-
-    x = hof.items[num]
-    # osp['pupil'] = PupilSpec(osp, key=['object', 'pupil'], value=x[0])
-    k = 0
-
-    for i in range(2, len(sm.ifcs) - 1):
-        sm.get_surface_and_gap(i)[1].thi = x[k]
-
-        k += 1
-
-    for i in range(len(sm.ifcs) - 1):
-
-        if type(sm.get_surface_and_gap(i)[1].medium) == ModelGlass:
-            sm.get_surface_and_gap(i)[1].medium.n = 1.54 * x[k] + 1.67 * (1 - x[k])
-
-            sm.get_surface_and_gap(i)[1].medium.v = 75 * x[k] + 39 * (1 - x[k])
-
-            k += 1
-
-    for i in range(len(sm.ifcs)):
-
-        if type(sm.ifcs[i].profile) == EvenPolynomial:
-            sm.ifcs[i].profile.coefs = x[k: k + CFS_LEN]
-
-            k += CFS_LEN
-
-    opm.update_model()
-    opm.save_model(f'bests/best{num, np.random.randint(0, 10000)}.roa')
-
-
-for i in range(len(hof.items)):
-    save_gen_model(i)
+# def save_gen_model(num):
+#     """
+#     Данная функция сохраняет 5 лучших особей (оптических схем) в папку bests, называет
+#     bests/best{номер_инд, рандомное число}, лучше открывайте папку low_loss, т.к там в названии пишется лосс
+#     Папка bests скорее нужна для вывода 5 лучших моделей, чтобы не потерять ни одну
+#
+#     Важно!
+#     Если запускаете в многопоточности, то создастся 5*(количество потоков) файлов.
+#
+#     :param num: индекс (нужен далее в цикле)
+#     :return:
+#     """
+#     opm = open_model(file_path)
+#     sm = opm['seq_model']
+#     osp = opm['optical_spec']
+#     pm = opm['parax_model']
+#     em = opm['ele_model']
+#     pt = opm['part_tree']
+#     ar = opm['analysis_results']
+#
+#     x = hof.items[num]
+#     k = 0
+#
+#     for i in range(2, len(sm.ifcs) - 1):
+#         sm.get_surface_and_gap(i)[1].thi = x[k]
+#
+#         k += 1
+#
+#     for i in range(len(sm.ifcs) - 1):
+#
+#         if type(sm.get_surface_and_gap(i)[1].medium) == ModelGlass:
+#             sm.get_surface_and_gap(i)[1].medium.n = 1.54 * x[k] + 1.67 * (1 - x[k])
+#
+#             sm.get_surface_and_gap(i)[1].medium.v = 75 * x[k] + 39 * (1 - x[k])
+#
+#             k += 1
+#
+#     for i in range(len(sm.ifcs)):
+#
+#         if type(sm.ifcs[i].profile) == EvenPolynomial:
+#             sm.ifcs[i].profile.coefs = x[k: k + CFS_LEN]
+#
+#             k += CFS_LEN
+#
+#     opm.update_model()
+#     opm.save_model(f'bests/best{num, np.random.randint(0, 10000)}.roa')
+#
+#
+# for i in range(len(hof.items)):
+#     # Сохраняем n лучших оптических схем
+#     save_gen_model(i)
